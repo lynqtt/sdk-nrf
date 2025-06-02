@@ -35,12 +35,26 @@ struct sleeping_thread {
 	uint32_t context;
 };
 
+//#define _HEAP_T                         struct k_heap
+//#define _HEAP_INIT(HEAP, MEM, BYTES)    k_heap_init(HEAP, MEM, BYTES)
+//#define _HEAP_ALLOC(HEAP, BYTES, WAIT)  k_heap_alloc(HEAP, BYTES, WAIT)
+//#define _HEAP_FREE(HEAP, MEM)           k_heap_free(HEAP, MEM)
+#define _HEAP_T                         struct sys_heap
+#define _HEAP_INIT(HEAP, MEM, BYTES)    sys_heap_init(HEAP, MEM, BYTES)
+#define _HEAP_ALLOC(HEAP, BYTES, WAIT)  sys_heap_alloc(HEAP, BYTES)
+#define _HEAP_FREE(HEAP, MEM)           sys_heap_free(HEAP, MEM)
+
+struct {
+    uint8_t* block;
+    int back;
+} mdmbuf;
+
 /* Heaps, extern in diag.c */
 
 /* Shared memory heap */
-struct k_heap nrf_modem_lib_shmem_heap;
+//_HEAP_T k_heap nrf_modem_lib_shmem_heap;
 /* Library heap */
-struct k_heap nrf_modem_lib_heap;
+_HEAP_T nrf_modem_lib_heap;
 static uint8_t library_heap_buf[CONFIG_NRF_MODEM_LIB_HEAP_SIZE];
 
 /* An array of thread ID and RPC counter pairs, used to avoid race conditions.
@@ -367,7 +381,7 @@ void nrf_modem_os_event_notify(uint32_t context)
 void *nrf_modem_os_alloc(size_t bytes)
 {
 	extern uint32_t nrf_modem_lib_failed_allocs;
-	void * const addr = k_heap_alloc(&nrf_modem_lib_heap, bytes, K_NO_WAIT);
+	void * const addr = _HEAP_ALLOC(&nrf_modem_lib_heap, bytes, K_NO_WAIT);
 
 	if (IS_ENABLED(CONFIG_NRF_MODEM_LIB_MEM_DIAG_ALLOC) && !addr) {
 		nrf_modem_lib_failed_allocs++;
@@ -378,31 +392,37 @@ void *nrf_modem_os_alloc(size_t bytes)
 
 void nrf_modem_os_free(void *mem)
 {
-	k_heap_free(&nrf_modem_lib_heap, mem);
+	_HEAP_FREE(&nrf_modem_lib_heap, mem);
 }
 
 void *nrf_modem_os_shm_tx_alloc(size_t bytes)
 {
-	extern uint32_t nrf_modem_lib_shmem_failed_allocs;
 
-#if (CONFIG_SOC_SERIES_NRF92X && CONFIG_DCACHE)
-	/* Allocate cache line aligned memory. */
-	void * const addr = k_heap_aligned_alloc(&nrf_modem_lib_shmem_heap, CONFIG_DCACHE_LINE_SIZE,
-				    ROUND_UP(bytes, CONFIG_DCACHE_LINE_SIZE), K_NO_WAIT);
-#else
-	void * const addr = k_heap_alloc(&nrf_modem_lib_shmem_heap, bytes, K_NO_WAIT);
-#endif
+//    extern uint32_t nrf_modem_lib_shmem_failed_allocs;
+//
+//#if (CONFIG_SOC_SERIES_NRF92X && CONFIG_DCACHE)
+//	/* Allocate cache line aligned memory. */
+//	void * const addr = k_heap_aligned_alloc(&nrf_modem_lib_shmem_heap, CONFIG_DCACHE_LINE_SIZE,
+//				    ROUND_UP(bytes, CONFIG_DCACHE_LINE_SIZE), K_NO_WAIT);
+//#else
+//	void * const addr = _HEAP_ALLOC(&nrf_modem_lib_shmem_heap, bytes, K_NO_WAIT);
+//#endif
+//
+//	if (IS_ENABLED(CONFIG_NRF_MODEM_LIB_MEM_DIAG_ALLOC) && !addr) {
+//		nrf_modem_lib_shmem_failed_allocs++;
+//	}
+//
+//	return addr;
 
-	if (IS_ENABLED(CONFIG_NRF_MODEM_LIB_MEM_DIAG_ALLOC) && !addr) {
-		nrf_modem_lib_shmem_failed_allocs++;
-	}
+    const int relative_addr = mdmbuf.back * 512;
+    mdmbuf.back = (mdmbuf.back + 1) & 15;
+       return (void*)(mdmbuf.block + relative_addr);
 
-	return addr;
 }
 
 void nrf_modem_os_shm_tx_free(void *mem)
 {
-	k_heap_free(&nrf_modem_lib_shmem_heap, mem);
+	//_HEAP_FREE(&nrf_modem_lib_shmem_heap, mem);
 }
 
 #if defined(CONFIG_LOG)
@@ -502,8 +522,11 @@ static int on_init(void)
 void nrf_modem_os_init(void)
 {
 	/* Initialize heaps */
-	k_heap_init(&nrf_modem_lib_heap, library_heap_buf, sizeof(library_heap_buf));
-	k_heap_init(&nrf_modem_lib_shmem_heap, (void *)SHMEM_TX_HEAP_ADDR, SHMEM_TX_HEAP_SIZE);
+	_HEAP_INIT(&nrf_modem_lib_heap, library_heap_buf, sizeof(library_heap_buf));
+    //_HEAP_INIT(&nrf_modem_lib_shmem_heap, (void *)SHMEM_TX_HEAP_ADDR, SHMEM_TX_HEAP_SIZE);
+    mdmbuf.block = (void *)PM_NRF_MODEM_LIB_TX_ADDRESS;
+    mdmbuf.back = 0;
+
 }
 
 void nrf_modem_os_shutdown(void)

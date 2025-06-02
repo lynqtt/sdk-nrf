@@ -154,6 +154,17 @@ static void nrf_modem_lib_dfu_handler(uint32_t dfu_res)
 	}
 }
 
+#ifndef _RVN_DEFAULT_IPC_IRQ
+ISR_DIRECT_DECLARE(zerolatency_ipc_irq) {
+    nrfx_ipc_irq_handler();
+
+    ///@todo JPN: Determine if we want to do this direct PM ...
+    /// we might not...
+    ISR_DIRECT_PM();
+    return 1;
+}
+#endif
+
 int nrf_modem_lib_init(void)
 {
 	int err;
@@ -162,8 +173,13 @@ int nrf_modem_lib_init(void)
 	/* Setup the network IRQ used by the Modem library.
 	 * Note: No call to irq_enable() here, that is done through nrf_modem_init().
 	 */
+    #ifdef _RVN_DEFAULT_IPC_IRQ
 	IRQ_CONNECT(NRF_MODEM_IPC_IRQ, CONFIG_NRF_MODEM_LIB_IPC_IRQ_PRIO,
 		    nrfx_isr, nrfx_ipc_irq_handler, 0);
+    #else
+    IRQ_DIRECT_CONNECT(NRF_MODEM_IPC_IRQ, CONFIG_NRF_MODEM_LIB_IPC_IRQ_PRIO,
+            zerolatency_ipc_irq, IRQ_ZERO_LATENCY);
+    #endif
 #endif /* CONFIG_SOC_SERIES_NRF91X */
 
 	err = nrf_modem_init(&init_params);
